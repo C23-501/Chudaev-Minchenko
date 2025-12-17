@@ -54,8 +54,9 @@ architecture rtl of AvalonMM_Slave is
   type internal_state_t is (INT_IDLE, WR_CMD_SENT, RD_CMD_SENT);
   -- Функции
   function count_ones(be : std_logic_vector) return std_logic_vector is
-    variable cnt : std_logic_vector(7 downto 0) := (others => '0');
+    variable cnt : std_logic_vector(7 downto 0);
   begin
+    cnt := (others => '0');
     for i in be'range loop
       if be(i) = '1' then
         cnt := std_logic_vector(unsigned(cnt) + 1);
@@ -71,35 +72,35 @@ architecture rtl of AvalonMM_Slave is
     return std_logic_vector(to_unsigned(0, 8));
   end function;
   -- Сигналы FSM
-  signal master_state_r : master_state_t := IDLE;
-  signal internal_state_r : internal_state_t := INT_IDLE;
+  signal master_state_r : master_state_t;
+  signal internal_state_r : internal_state_t;
   -- Захваченные параметры транзакции
-  signal captured_addr_r : std_logic_vector(ADDR_WIDTH-1 downto 0) := (others => '0');
-  signal captured_be_r : std_logic_vector(BYTEEN_WIDTH-1 downto 0) := (others => '0');
-  signal captured_burst_r : std_logic_vector(3 downto 0) := (others => '0');
-  signal captured_byte_offset_r : std_logic_vector(7 downto 0) := (others => '0');
-  signal captured_active_bytes_r : std_logic_vector(7 downto 0) := (others => '0');
-  signal is_write_r : std_logic := '0';
+  signal captured_addr_r : std_logic_vector(ADDR_WIDTH-1 downto 0);
+  signal captured_be_r : std_logic_vector(BYTEEN_WIDTH-1 downto 0);
+  signal captured_burst_r : std_logic_vector(3 downto 0);
+  signal captured_byte_offset_r : std_logic_vector(7 downto 0);
+  signal captured_active_bytes_r : std_logic_vector(7 downto 0);
+  signal is_write_r : std_logic;
   -- Регистры
-  signal op_id_r : std_logic_vector(7 downto 0) := (others => '0');
-  signal master_beats_remaining_r : std_logic_vector(7 downto 0) := (others => '0');
+  signal op_id_r : std_logic_vector(7 downto 0);
+  signal master_beats_remaining_r : std_logic_vector(7 downto 0);
  
   -- Счетчики для отслеживания прогресса
-  signal write_beats_sent_r : std_logic_vector(7 downto 0) := (others => '0');
-  signal read_beats_received_r : std_logic_vector(7 downto 0) := (others => '0');
+  signal write_beats_sent_r : std_logic_vector(7 downto 0);
+  signal read_beats_received_r : std_logic_vector(7 downto 0);
  
-  signal read_data_r : std_logic_vector(DATA_WIDTH-1 downto 0) := (others => '0');
-  signal waitrequest_r : std_logic := '1';
+  signal read_data_r : std_logic_vector(DATA_WIDTH-1 downto 0);
+  signal waitrequest_r : std_logic;
  
   -- Флаги для отслеживания отправки команд
-  signal wr_cmd_sent_r : std_logic := '0';
-  signal rd_cmd_sent_r : std_logic := '0';
+  signal wr_cmd_sent_r : std_logic;
+  signal rd_cmd_sent_r : std_logic;
  
   -- Внутренние сигналы для стробов
-  signal wr_cmd_write_int : std_logic := '0';
-  signal wr_data_write_int : std_logic := '0';
-  signal rd_cmd_read_int : std_logic := '0';
-  signal rd_data_read_int : std_logic := '0';
+  signal wr_cmd_write_int : std_logic;
+  signal wr_data_write_int : std_logic;
+  signal rd_cmd_read_int : std_logic;
+  signal rd_data_read_int : std_logic;
  
   -- Флаги burst enable
   signal burst_enable : std_logic;
@@ -214,41 +215,37 @@ begin
         wr_cmd_sent_r <= '0';
         rd_cmd_sent_r <= '0';
       end if;
-      -- Логика waitrequest_r
-      case master_state_r is
-        when IDLE =>
-          if internal_state_r = INT_IDLE then
-            if ((write_master = '1' and wr_data_full = '0') or
-                (read_master = '1' and wr_cmd_full = '0')) then
-              waitrequest_r <= '0';
-            else
-              waitrequest_r <= '1';
-            end if;
-          else
-            waitrequest_r <= '1';
-          end if;
-         
-        when WRITE_BURST =>
-          if wr_data_full = '0' and
-             write_master = '1' and
-             unsigned(master_beats_remaining_r) > 0 then
+      -- Логика waitrequest_r с использованием if-else вместо case
+      if master_state_r = IDLE then
+        if internal_state_r = INT_IDLE then
+          if ((write_master = '1' and wr_data_full = '0') or
+              (read_master = '1' and wr_cmd_full = '0')) then
             waitrequest_r <= '0';
           else
             waitrequest_r <= '1';
           end if;
-         
-        when READ_BURST =>
-          if rd_data_empty = '0' and
-             read_master = '1' and
-             unsigned(master_beats_remaining_r) > 0 then
-            waitrequest_r <= '0';
-          else
-            waitrequest_r <= '1';
-          end if;
-         
-        when others =>
+        else
           waitrequest_r <= '1';
-      end case;
+        end if;
+      elsif master_state_r = WRITE_BURST then
+        if wr_data_full = '0' and
+           write_master = '1' and
+           unsigned(master_beats_remaining_r) > 0 then
+          waitrequest_r <= '0';
+        else
+          waitrequest_r <= '1';
+        end if;
+      elsif master_state_r = READ_BURST then
+        if rd_data_empty = '0' and
+           read_master = '1' and
+           unsigned(master_beats_remaining_r) > 0 then
+          waitrequest_r <= '0';
+        else
+          waitrequest_r <= '1';
+        end if;
+      else
+        waitrequest_r <= '1';
+      end if;
       -- Захват параметров транзакции при начале
       if master_state_r = IDLE and internal_state_r = INT_IDLE and waitrequest_r = '0' then
         captured_addr_r <= address_master;
@@ -325,46 +322,43 @@ begin
           end if;
         end if;
       end if;
-      -- Логика отправки команд к бэкенду
+      -- Логика отправки команд к бэкенду с использованием if-else вместо case
       wr_cmd <= (others => '0');
-      case internal_state_r is
-        when WR_CMD_SENT =>
-          -- Отправка команды записи
-          if wr_cmd_full = '0' then
-            expected_bytes := std_logic_vector(to_unsigned(
-              to_integer(unsigned(captured_active_bytes_r)) *
-              to_integer(unsigned(captured_burst_r)), 16));
-           
-            wr_cmd <= is_write_r &
-                       captured_addr_r & -- Используем скорректированный адрес
-                       expected_bytes &
-                       captured_be_r &
-                       op_id_r;
-            wr_cmd_write_int <= '1';
-            op_id_r <= std_logic_vector(unsigned(op_id_r) + 1);
-            wr_cmd_sent_r <= '1';
-          end if;
+      
+      if internal_state_r = WR_CMD_SENT then
+        -- Отправка команды записи
+        if wr_cmd_full = '0' then
+          expected_bytes := std_logic_vector(to_unsigned(
+            to_integer(unsigned(captured_active_bytes_r)) *
+            to_integer(unsigned(captured_burst_r)), 16));
          
-        when RD_CMD_SENT =>
-          -- Отправка команды чтения
-          if wr_cmd_full = '0' then
-            expected_bytes := std_logic_vector(to_unsigned(
-              to_integer(unsigned(captured_active_bytes_r)) *
-              to_integer(unsigned(captured_burst_r)), 16));
-           
-            wr_cmd <= is_write_r &
-                       captured_addr_r & -- Используем скорректированный адрес
-                       expected_bytes &
-                       captured_be_r &
-                       op_id_r;
-            wr_cmd_write_int <= '1';
-            op_id_r <= std_logic_vector(unsigned(op_id_r) + 1);
-            rd_cmd_sent_r <= '1';
-          end if;
+          wr_cmd <= is_write_r &
+                     captured_addr_r & -- Используем скорректированный адрес
+                     expected_bytes &
+                     captured_be_r &
+                     op_id_r;
+          wr_cmd_write_int <= '1';
+          op_id_r <= std_logic_vector(unsigned(op_id_r) + 1);
+          wr_cmd_sent_r <= '1';
+        end if;
+      elsif internal_state_r = RD_CMD_SENT then
+        -- Отправка команды чтения
+        if wr_cmd_full = '0' then
+          expected_bytes := std_logic_vector(to_unsigned(
+            to_integer(unsigned(captured_active_bytes_r)) *
+            to_integer(unsigned(captured_burst_r)), 16));
          
-        when others =>
-          null;
-      end case;
+          wr_cmd <= is_write_r &
+                     captured_addr_r & -- Используем скорректированный адрес
+                     expected_bytes &
+                     captured_be_r &
+                     op_id_r;
+          wr_cmd_write_int <= '1';
+          op_id_r <= std_logic_vector(unsigned(op_id_r) + 1);
+          rd_cmd_sent_r <= '1';
+        end if;
+      end if;
+      
       if rd_cmd_empty = '0' then
         rd_cmd_read_int <= '1'; -- Читаем ответ из FIFO
         if rd_cmd(23 downto 16) /= x"00" then
