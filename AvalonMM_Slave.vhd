@@ -76,6 +76,7 @@ architecture rtl of AvalonMM_Slave is
     signal required_words_for_write : std_logic_vector(5 downto 0);
 	 signal burst_word_counter : std_logic_vector(4 downto 0);
     signal wr_data_has_space : std_logic;
+	 signal calculated_data_width : std_logic_vector(11 downto 0);
     alias cmd_operation_type_ra : std_logic is exec_cmd_r(61);
     alias cmd_address_ra : std_logic_vector(24 downto 0) is exec_cmd_r(60 downto 36);
     alias cmd_datawidth_ra : std_logic_vector(11 downto 0) is exec_cmd_r(35 downto 24);
@@ -248,23 +249,32 @@ begin
             elsif (master_state = WRITE_HEADER and avs_read_r = '1') then
                 avs_read_r <= '0';
             end if;
-
             if (master_state = IDLE and write_master = '1') then
                 avs_write_r <= '1';
             elsif (master_state = WRITE_HEADER) then
                 avs_write_r <= '0';
             end if;
-
             if (master_state = IDLE and (read_master = '1' or write_master = '1')) then
-				
                 captured_addr_avalon_r <= address_master;
                 captured_be_avalon_r <= byte_enable_master;
-                captured_be_last_r <= byte_enable_master;
+                captured_be_last_r <= "00000000";
                 avs_burstenable_r <= burstenable_master;
                 burstcount_r <= burstcount_master;
 					 burst_word_counter <= (others => '0');
+					 if burstenable_master = '0' then
+                calculated_data_width <= calc_data_width(
+                    byte_enable_master, 
+                    "00000000", 
+                    "00001"
+                );
+					else
+                calculated_data_width <= calc_data_width(
+                    byte_enable_master, 
+                    "00000000", 
+                    burstcount_master
+                );
             end if;
-				
+            end if;
 				if master_state = BURST_WRITE_DATA then
 					if write_master = '1' and waitrequest_r = '0' then
 						if burst_word_counter = "00000" then 
@@ -275,6 +285,11 @@ begin
 												
 						if burst_word_counter = burstcount_r - 1 then
 							captured_be_last_r <= byte_enable_master;
+							calculated_data_width <= calc_data_width(
+                        captured_be_avalon_r,
+                        byte_enable_master,
+                        burstcount_r
+                    );
 						end if;
 						
 						if burst_word_counter = burstcount_r then
@@ -284,7 +299,6 @@ begin
 				elsif master_state = IDLE then 
 					burst_word_counter <= (others => '0');
 				end if;
-				
 				if master_state = IDLE and write_master = '1' then 
 				  if burstenable_master = '1' then
 				    required_words_for_write <= "0" & burstcount_master;
@@ -292,19 +306,14 @@ begin
 				    required_words_for_write <= "000001";
 				  end if;
 				end if;
-
             if master_state = PREPARE_HEADER then
                 cmd_operation_type_ra <= avs_write_r;
                 cmd_address_ra <= captured_addr_avalon_r;
                 cmd_be_first_ra <= captured_be_avalon_r;
                 cmd_be_last_ra <= captured_be_last_r;
+					 cmd_datawidth_ra <= calculated_data_width;
                 cmd_operation_id_ra <= op_id_cnt;
 					 op_id_cnt <= op_id_cnt + 1;
-                if avs_burstenable_r = '0' then
-                    cmd_datawidth_ra <= calc_data_width(captured_be_avalon_r, captured_be_avalon_r, "00001");
-                else
-                    cmd_datawidth_ra <= calc_data_width(captured_be_avalon_r, captured_be_last_r, burstcount_r);
-                end if;
             end if;
 
             if (master_state = WRITE_HEADER and wr_cmd_full = '0') then
@@ -316,7 +325,14 @@ begin
 				
             if (master_state = WRITE_DATA) then
                 wr_data <= write_data_master;
+					 
             elsif (master_state = BURST_WRITE_DATA and write_master = '1' and burst_write_words_sent /= "00000" and burst_write_words_sent /= (burstcount_r + 1)) then
+					 cmd_be_last_ra <= byte_enable_master;
+					 cmd_datawidth_ra <= calc_data_width(
+                    cmd_be_first_ra, 
+                    byte_enable_master, 
+                    burstcount_master
+                );
                 wr_data <= write_data_master;
             end if;
 
