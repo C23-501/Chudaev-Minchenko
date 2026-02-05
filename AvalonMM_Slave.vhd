@@ -83,7 +83,7 @@ architecture rtl of AvalonMM_Slave is
     alias cmd_be_first_ra : std_logic_vector(7 downto 0) is exec_cmd_r(23 downto 16);
     alias cmd_be_last_ra : std_logic_vector(7 downto 0) is exec_cmd_r(15 downto 8);
     alias cmd_operation_id_ra : std_logic_vector(7 downto 0) is exec_cmd_r(7 downto 0);
-
+	 signal ready : std_logic;
     function calc_be_bytes(be : std_logic_vector(7 downto 0)) return std_logic_vector is
         variable ones_cnt : integer := 0;
     begin
@@ -115,21 +115,19 @@ architecture rtl of AvalonMM_Slave is
         total_bytes := bytes_first + bytes_mid + bytes_last;
         return conv_std_logic_vector(total_bytes, 12);
     end function;
-
+	
 begin
     wr_cmd_write <= wr_cmd_write_r;
     wr_data_write <= wr_data_write_r;
     rd_cmd_read <= rd_cmd_read_r;
     rd_data_read <= rd_data_read_r;
     read_data_avs <= read_data_r;
-    waitrequest_avs <= '0' when (master_state = IDLE and (read_master = '0' and write_master = '0'))	
-		  else'0' when (internal_state = READ_DATA and rd_data_empty = '0' and out_burst_cnt = "0000" and trans_cnt = "00001")
-        else '0' when (master_state = WRITE_HEADER and avs_read_r = '1' and trans_cnt < "10000" and wr_cmd_full = '0' and avs_burstenable_r = '1') or (internal_state = READ_DATA and avs_burstenable_r = '0' and trans_cnt < "00010")
-        else waitrequest_r when (avs_write_r = '1' or (avs_read_r = '1' and master_state /= IDLE))
+     waitrequest_avs <= '0' when (master_state = IDLE and (read_master = '0' and write_master = '0'))	
+        else waitrequest_r when (avs_write_r = '1' or avs_read_r = '1')
         else '1';
         
     wr_data_has_space <= '1' when (WR_DATA_FIFO_DEPTH - conv_integer(wr_data_used)) >= conv_integer(required_words_for_write) else '0';
-		
+	 
     master_fsm: process(clk_80MHz, nRST)
     begin
         if nRST = '0' then
@@ -220,6 +218,7 @@ begin
     signals: process(clk_80MHz, nRST)
     begin
         if nRST = '0' then
+				ready <= '1';
             read_data_r <= (others => '0');
             wr_cmd_write_r <= '0';
             wr_data_write_r <= '0';
@@ -244,6 +243,7 @@ begin
 				op_id_cnt <= (others => '0');
         elsif rising_edge(clk_80MHz) then
 		      led_control <= "00100100";
+				
             if (master_state = IDLE and read_master = '1') then
                 avs_read_r <= '1';
             elsif (master_state = WRITE_HEADER and avs_read_r = '1') then
@@ -327,13 +327,14 @@ begin
                 wr_data <= write_data_master;
 					 
             elsif (master_state = BURST_WRITE_DATA and write_master = '1' and burst_write_words_sent /= "00000" and burst_write_words_sent /= (burstcount_r + 1)) then
-					 cmd_be_last_ra <= byte_enable_master;
 					 cmd_datawidth_ra <= calc_data_width(
-                    cmd_be_first_ra, 
-                    byte_enable_master, 
-                    burstcount_master
-                );
+                        captured_be_avalon_r,
+                        byte_enable_master,
+                        burstcount_r
+                    );
+					 cmd_be_last_ra <= byte_enable_master;
                 wr_data <= write_data_master;
+					 waitrequest_r <= '0';
             end if;
 
             if (master_state = WRITE_DATA) then
@@ -422,8 +423,12 @@ begin
             
             if (master_state = PREPARE_HEADER and avs_write_r = '1' and wr_data_has_space = '0') then
                 waitrequest_r <= '1';
-            elsif (trans_cnt < "10000" and wr_cmd_full = '0' and (master_state = BURST_WRITE_DATA or master_state = WRITE_DATA)) then
+				elsif (master_state = PREPARE_HEADER and avs_write_r = '0') then
+						waitrequest_r <= '0';
+            elsif ( trans_cnt < "10000" and wr_cmd_full = '0' and (master_state = BURST_WRITE_DATA or master_state = WRITE_DATA)) then
                 waitrequest_r <= '0';
+			   elsif (master_state = WRITE_HEADER) then
+					waitrequest_r <= '0';
             else
                 waitrequest_r <= '1';
             end if;
