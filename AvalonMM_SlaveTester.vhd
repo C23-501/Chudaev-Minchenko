@@ -46,18 +46,20 @@ architecture sim of AvalonMM_SlaveTester is
     x"01", x"02", x"04", x"08", x"10", x"20", x"40", x"80",
     x"18", x"3C", x"7E",
     x"F8", x"7C", x"1F",
-    x"FF"
+    x"FF",
+	 x"0F", x"07", x"03", x"3F"
   );
 
-  signal backend_paused : std_logic := '0';
+  signal backend_paused : std_logic;
   
-  signal nRST_internal : std_logic := '0';
+  signal nRST_internal : std_logic;
 
-  signal s_read_op_req    : std_logic := '0';
+  signal s_read_op_req    : std_logic := '0;
   signal s_read_op_done   : std_logic := '0';
   
   signal s_cmd_op_id      : std_logic_vector(7 downto 0);
   signal s_cmd_datawidth  : std_logic_vector(11 downto 0);
+
 
 begin
 
@@ -73,7 +75,7 @@ begin
       address_master <= (others => '0');
       write_data_master <= (others => '0');
       byte_enable_master <= (others => '0');
-      burstcount_master <= std_logic_vector(to_unsigned(1, burstcount_master'length));  -- Автоматический размер
+      burstcount_master <= std_logic_vector(to_unsigned(1, burstcount_master'length)); 
       burstenable_master <= '0';
       wait until rising_edge(clk);
     end procedure;
@@ -86,24 +88,26 @@ begin
     end procedure;
     
   begin
+    s_read_op_req <= '0';
     address_master <= (others => '0');
     read_master <= '0';
     write_master <= '0';
-    write_data_master <= (others => '0');
     byte_enable_master <= (others => '0');
     burstcount_master <= (others => '0');
     burstenable_master <= '0';
-    
-    nRST_internal <= '0';
-    backend_paused <= '0';
-    wait until rising_edge(clk);
-    wait until rising_edge(clk);
+	 
+	 nRST_internal <= '0';
+	  for i in 1 to 2 loop
+        wait until rising_edge(clk);
+    end loop;
     nRST_internal <= '1';
-    wait until rising_edge(clk);
+
+    for i in 1 to 2 loop
+        wait until rising_edge(clk);
+    end loop;
 
     report "SCENARIO 1: Single Writes";
     for i in TEST_BE_VECTORS'range loop
-      test_pause(10);
       avalon_single_write(
         clk => clk,
         waitrequest => waitrequest_avs,
@@ -116,9 +120,10 @@ begin
         data => x"AAAA_BBBB_CCCC_DD" & TEST_BE_VECTORS(i),
         be => TEST_BE_VECTORS(i)
       );
-      test_pause(10);
+		test_pause(10);
     end loop;
     
+
     nRST_internal <= '0';
     backend_paused <= '0';
     wait for 100 ns;
@@ -126,7 +131,7 @@ begin
     wait until rising_edge(clk);
 
     report "SCENARIO 2: Burst Writes (Burstcount=4)";
-    for i in 0 to 2 loop
+    for i in 15 to 17 loop
       address_master <= std_logic_vector(to_unsigned(1 * 64, 25));
       burstcount_master <= "00100";
       burstenable_master <= '1';
@@ -137,15 +142,25 @@ begin
       wait until rising_edge(clk);
       burstenable_master <= '0';
       wait until rising_edge(clk) and waitrequest_avs = '0';
-      for burst_step in 2 to 4 loop
+      for burst_step in 2 to 3 loop
+			byte_enable_master <= x"FF";
         write_data_master <= std_logic_vector(to_unsigned(burst_step, 64));
         wait until rising_edge(clk) and waitrequest_avs = '0';
       end loop;
+		
+		byte_enable_master <= TEST_BE_VECTORS(i)(0) & TEST_BE_VECTORS(i)(1) & TEST_BE_VECTORS(i)(2)
+									 & TEST_BE_VECTORS(i)(3) & TEST_BE_VECTORS(i)(4) & TEST_BE_VECTORS(i)(5)
+									& TEST_BE_VECTORS(i)(6) & TEST_BE_VECTORS(i)(7);
+      write_data_master <= std_logic_vector(to_unsigned(4, 64));
+		wait until rising_edge(clk) and waitrequest_avs = '0';
 
       write_master <= '0';
       wait until rising_edge(clk);
       test_pause(10);
     end loop;
+	 
+	  test_pause(100);
+	 
     bus_clear;
 
     
@@ -169,17 +184,29 @@ begin
       wait until rising_edge(clk);
       burstenable_master <= '0';
       wait until rising_edge(clk) and waitrequest_avs = '0';
-      for burst_step in 2 to 16 loop
+      for burst_step in 2 to 15 loop
+			byte_enable_master <= x"FF";
         write_data_master <= std_logic_vector(to_unsigned(burst_step, 64));
         wait until rising_edge(clk) and waitrequest_avs = '0';
       end loop;
+		
+		byte_enable_master <= TEST_BE_VECTORS(i)(0) & TEST_BE_VECTORS(i)(1) & TEST_BE_VECTORS(i)(2)
+									 & TEST_BE_VECTORS(i)(3) & TEST_BE_VECTORS(i)(4) & TEST_BE_VECTORS(i)(5)
+									& TEST_BE_VECTORS(i)(6) & TEST_BE_VECTORS(i)(7);
+      write_data_master <= std_logic_vector(to_unsigned(4, 64));
+		wait until rising_edge(clk) and waitrequest_avs = '0';
 
       write_master <= '0';
-      wait until rising_edge(clk);
+      wait until rising_edge(clk) and waitrequest_avs = '0';
       
       test_pause(10);
       
     end loop;
+	 
+	 test_pause(100);
+
+	 
+	 
     bus_clear;
 
     
@@ -190,7 +217,9 @@ begin
         wait until rising_edge(clk);
     end loop;
     nRST_internal <= '1';
-    wait until rising_edge(clk);
+    for i in 1 to 5 loop
+        wait until rising_edge(clk);
+    end loop;
     
     report "SCENARIO 4: Single Reads";
     for i in TEST_BE_VECTORS'range loop
@@ -206,7 +235,7 @@ begin
         be => TEST_BE_VECTORS(i),
         data_out => dummy_read
       );
-		 for i in 1 to 20 loop
+		 for i in 1 to 5 loop
 			  wait until rising_edge(clk);
 		 end loop;
     end loop;
@@ -437,7 +466,7 @@ begin
 
   process(clk)
     variable v_cmd_data : std_logic_vector(61 downto 0);
-    type t_state is (IDLE, READ_CMD, DECODE, WAIT_READ_DONE, DRAIN_WR_DATA);
+    type t_state is (IDLE, READ_CMD, DECODE, WAIT_READ_DONE, DRAIN_WR_DATA );
     variable v_state : t_state := IDLE;
     
     variable v_op_write : std_logic;
@@ -448,9 +477,9 @@ begin
       if nRST_internal = '0' then
         b_wr_cmd_rd_en <= '0';
         b_wr_data_rd_en <= '0';
-        s_read_op_req <= '0';
         s_cmd_op_id <= (others => '0');
         s_cmd_datawidth <= (others => '0');
+		  s_read_op_req <= '0';
         v_state := IDLE;
       else
         case v_state is
@@ -470,8 +499,7 @@ begin
             
           when DECODE =>
             v_op_write := v_cmd_data(61);
-            v_cmd_width_bytes := unsigned(v_cmd_data(35 downto 24));
-            
+            v_cmd_width_bytes := unsigned(v_cmd_data(35 downto 24));	
             if v_op_write = '1' then
               v_words_to_drain := (to_integer(v_cmd_width_bytes) + 7) / 8;
               if v_words_to_drain > 0 then
@@ -480,28 +508,31 @@ begin
                  v_state := IDLE;
               end if;
             else
-              s_cmd_op_id <= v_cmd_data(7 downto 0);
-              s_cmd_datawidth <= v_cmd_data(35 downto 24);
-              
-              s_read_op_req <= '1';
-              v_state := WAIT_READ_DONE;
+						report "pip";
+						s_cmd_op_id <= v_cmd_data(7 downto 0);
+						s_cmd_datawidth <= v_cmd_data(35 downto 24);
+                 s_read_op_req <= '1';
+					  report "Read operation requested, op_id: " & integer'image(to_integer(unsigned(v_cmd_data(7 downto 0))));
+					  v_state := WAIT_READ_DONE;
             end if;
 
           when DRAIN_WR_DATA =>
+				   report "DRAIN"& integer'image(v_words_to_drain);
               if b_wr_data_empty = '0' and backend_paused = '0' then
                   b_wr_data_rd_en <= '1';
                   v_words_to_drain := v_words_to_drain - 1;
               else
+						if v_words_to_drain <= 0 then
+							b_wr_data_rd_en <= '0';
+							v_state := IDLE;
+						end if;
                   b_wr_data_rd_en <= '0';
+						
               end if;
-
-              if v_words_to_drain <= 0 then
-                  b_wr_data_rd_en <= '0';
-                  v_state := IDLE;
-              end if;
-
+			
           when WAIT_READ_DONE =>
             if s_read_op_done = '1' then
+					report "lol";
               s_read_op_req <= '0';
               v_state := IDLE;
             end if;
@@ -525,7 +556,6 @@ begin
       if nRST_internal = '0' then
         b_rd_cmd_wr_en <= '0';
         b_rd_data_wr_en <= '0';
-        b_rd_cmd_data <= (others => '0');
         b_rd_data_data <= (others => '0');
         s_read_op_done <= '0';
         v_rd_state := IDLE;
@@ -533,22 +563,27 @@ begin
       else
         case v_rd_state is
           when IDLE =>
-
-            if s_read_op_req = '1' then
+            if s_read_op_req = '1' then 
+				report "pop";
                v_rd_state := CALC_SIZE;
             end if;
             
           when CALC_SIZE =>
-
             v_words_count := (to_integer(unsigned(s_cmd_datawidth)) + 7) / 8;
-            if v_words_count = 0 then v_words_count := 1; end if; 
-            v_words_sent := 0;
+            if v_words_count = 0 then 
+					v_rd_state := IDLE;
+					s_read_op_done <= '1';
+					s_read_op_req <= '0';
+				else 
+            v_words_sent := 1;
             v_rd_state := GEN_DATA;
+				end if;
             
           when GEN_DATA =>
-
-            if v_words_sent < v_words_count then
+					report "GENA";
+            if v_words_sent < v_words_count + 1 then
               if b_rd_data_full = '0' then
+					report "pop";
                 b_rd_data_wr_en <= '1';
                 b_rd_data_data <= x"00000000" & std_logic_vector(to_unsigned(v_words_sent, 32));
                 v_words_sent := v_words_sent + 1;
@@ -576,9 +611,8 @@ begin
              if b_rd_cmd_full = '0' then
                 b_rd_cmd_wr_en <= '1';
 
-                b_rd_cmd_data <= s_cmd_datawidth & s_cmd_op_id;
-                
-
+                b_rd_cmd_data <= std_logic_vector(s_cmd_datawidth) & std_logic_vector(s_cmd_op_id);
+               
                 s_read_op_done <= '1';
                 v_rd_state := WAIT_REQ_LOW;
              else
